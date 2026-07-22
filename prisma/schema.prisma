@@ -1,0 +1,151 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum TenderStatus {
+  NEW
+  VIEWED
+}
+
+enum DocumentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  NEEDS_REVIEW
+}
+
+enum RunStatus {
+  RUNNING
+  SUCCESS
+  PARTIAL_SUCCESS
+  FAILED
+}
+
+enum RelevanceStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  SKIPPED
+}
+
+enum Recommendation {
+  PURSUE
+  MAYBE
+  DO_NOT_PURSUE
+}
+
+model Tender {
+  id            String       @id @default(cuid())
+  dedupeKey     String       @unique
+  portal        String
+  tenderNumber  String?
+  title         String
+  department    String
+  state         String
+  publishedDate DateTime?
+  closingDate   DateTime?
+  budget        String?
+  emd           String?
+  description   String?      @db.Text
+  pdfUrl        String?
+  sourceUrl     String
+  status        TenderStatus @default(NEW)
+  rawHtml               String?        @db.Text
+  documentStatus        DocumentStatus @default(PENDING)
+  documentText          String?        @db.Text
+  documentSource        String?
+  documentProcessedAt   DateTime?
+  documentError         String?
+  relevanceStatus       RelevanceStatus @default(PENDING)
+  isRelevant            Boolean?
+  relevanceScore        Int?
+  relevanceReason       String?         @db.Text
+  relevanceModel        String?
+  relevanceProvider     String?
+  relevanceCheckedAt    DateTime?
+  relevanceError        String?
+
+  // ── Intelligence engine ──────────────────────────────────────────────────
+  // Deterministic match engine (runs before AI, no API cost)
+  matchScore            Int?            // 0-100 keyword/profile match score
+  matchKeywords         String[]        // inclusion keywords that matched
+
+  // ── Entry Opportunity Engine ─────────────────────────────────────────────
+  // Deterministic check: is this a good entry opportunity for a new government vendor?
+  entryScore            Int?            // 0-100 — how suitable for market entry
+  entryLevel            String?         // HIGH | MEDIUM | LOW
+  entrySignals          String[]        // specific signals detected (e.g. "MSME preference")
+
+  // AI intelligence output (richer than simple relevance)
+  aiSummary             String?         @db.Text  // 2-3 sentence summary
+  positiveFactors       String[]        // reasons to pursue
+  risks                 String[]        // concerns / red flags
+  missingInfo           String[]        // unknown information needed
+  whyWeCanWin           String[]        // specific reasons MAM can win this tender
+
+  // Final recommendation (deterministic rules applied on top of AI)
+  recommendation        Recommendation?
+  confidence            Int?            // 0-100
+  nextStep              String?         @db.Text
+  intelligenceAt        DateTime?       // when intelligence was last computed
+
+  // ── Eligibility engine ───────────────────────────────────────────────────
+  // Deterministic check: can MAM actually bid on this?
+  eligibilityStatus     String?         // ELIGIBLE | LIKELY_ELIGIBLE | UNKNOWN | NOT_ELIGIBLE
+  eligibilityScore      Int?            // 0-100 — how confident we are in eligibility
+  eligibilityNotes      String?         @db.Text  // human-readable explanation
+  eligibilityAt         DateTime?
+
+  // ── AI Layer 2 ───────────────────────────────────────────────────────────
+  // Deep analysis — only runs for tenders NOT marked DO_NOT_PURSUE
+  aiLayer2Status        String?         // PENDING | PROCESSING | COMPLETED | FAILED | SKIPPED
+  aiLayer2Summary       String?         @db.Text  // 4-5 sentence executive summary
+  aiLayer2Deliverables  String[]        // specific deliverables extracted
+  aiLayer2Qualifications String[]       // required qualifications/experience
+  aiLayer2Concerns      String[]        // commercial/technical concerns
+  aiLayer2Effort        String?         // estimated effort (e.g. "3-6 months, 4-person team")
+  aiLayer2Difficulty    String?         // LOW | MEDIUM | HIGH (proposal difficulty)
+  aiLayer2NextAction    String?         @db.Text
+  aiLayer2At            DateTime?
+
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  @@index([status])
+  @@index([documentStatus])
+  @@index([relevanceStatus])
+  @@index([portal])
+  @@index([closingDate])
+  @@index([recommendation])
+  @@index([matchScore])
+  @@index([entryScore])
+  @@index([entryLevel])
+  @@index([eligibilityStatus])
+  @@index([aiLayer2Status])
+}
+
+model ScraperRun {
+  id               String    @id @default(cuid())
+  status           RunStatus @default(RUNNING)
+  triggeredBy      String    @default("scheduler")
+  startedAt        DateTime  @default(now())
+  completedAt      DateTime?
+  durationMs       Int?
+  totalFetched     Int       @default(0)
+  totalNew         Int       @default(0)
+  totalUpdated     Int       @default(0)
+  totalSkipped     Int       @default(0)
+  totalFailed      Int       @default(0)
+  perPortalResults Json?
+  errorSummary     String?   @db.Text
+
+  @@index([status])
+  @@index([startedAt])
+}
