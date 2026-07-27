@@ -1,10 +1,3 @@
-type PdfParseResult = { text: string; numpages: number }
-type PdfParser = (buffer: Buffer, options?: { max?: number }) => Promise<PdfParseResult>
-
-// pdf-parse is CJS-only; excluded from bundling via serverExternalPackages
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const pdfParse = require('pdf-parse') as PdfParser
-
 const PDF_DOWNLOAD_TIMEOUT_MS = parseInt(process.env.PDF_DOWNLOAD_TIMEOUT_MS ?? '30000')
 
 export interface PdfResult {
@@ -37,11 +30,35 @@ export async function fetchAndExtractPdf(url: string): Promise<PdfResult> {
   const buffer = Buffer.from(await response.arrayBuffer())
   if (buffer.length < 100) throw new Error('PDF too small — likely an error page')
 
-  const data = await pdfParse(buffer, { max: 0 })
+  // pdf-parse v2 is "type":"module"; dynamic import avoids top-level require
+  // failing at serverless cold-start on Vercel ("Failed to load external module")
+  const mod = await import('pdf-parse').catch((err: unknown) => {
+    const msg = err instanceof Error ? err.message : String(err)
+    throw new Error(`pdf-parse unavailable: ${msg}`)
+  })
 
-  return {
-    text: data.text ?? '',
-    pages: data.numpages ?? 0,
-    durationMs: Date.now() - start,
+  // v2 exports PDFParse class (not a callable function like v1)
+  const PDFParse = mod.PDFParse as new (opts: {
+    data: Uint8Array
+    verbosity?: number
+  }) => {
+    getText(opts?: Record<string, unknown>): Promise<{ text: string; total: number }>
+    destroy(): Promise<void>
+  }
+
+  if (typeof PDFParse !== 'function') {
+    throw new Error(`pdf-parse module shape unexpected: ${Object.keys(mod).join(', ')}`)
+  }
+
+  const parser = new PDFParse({ data: new Uint8Array(buffer), verbosity: 0 })
+  try {
+    const data = await parser.getText()
+    return {
+      text: data.text ?? '',
+      pages: data.total ?? 0,
+      durationMs: Date.now() - start,
+    }
+  } finally {
+    await parser.destroy().catch(() => undefined)
   }
 }
