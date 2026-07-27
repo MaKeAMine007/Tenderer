@@ -1,7 +1,6 @@
-import { chromium } from 'playwright'
 import { ParsedTender } from '@/types'
 import { parseHtml } from './parser'
-import { closeBrowser } from '../utils/browser'
+import { launchBrowser, closeBrowser } from '../utils/browser'
 
 const BASE_URL = 'https://govtprocurement.delhi.gov.in'
 const PORTAL_URL = `${BASE_URL}/nicgep/app`
@@ -12,7 +11,7 @@ const LOAD_TIMEOUT = parseInt(process.env.SCRAPER_LOAD_TIMEOUT_MS ?? '15000')
 const MAX_PAGES = parseInt(process.env.SCRAPER_MAX_PAGES ?? '5')
 
 export async function scrape(): Promise<ParsedTender[]> {
-  const browser = await chromium.launch({ headless: true })
+  const browser = await launchBrowser()
   const context = await browser.newContext({
     userAgent:
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
